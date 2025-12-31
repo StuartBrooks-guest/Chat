@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Private Audio Call</title>
+</head>
+<body>
+  <h2>Private Audio Call</h2>
+  <button id="call">Start Call</button>
+  <audio id="remote" autoplay></audio>
+
+  <script>
+    const SIGNAL_URL = "https://chat-2u5f.onrender.com";
+    let pc, ws;
+
+    document.getElementById("call").onclick = async () => {
+      ws = new WebSocket(SIGNAL_URL);
+
+      pc = new RTCPeerConnection({ iceServers: [], iceTransportPolicy: "all" });
+
+      pc.ontrack = e => document.getElementById("remote").srcObject = e.streams[0];
+
+      pc.onicecandidate = e => {
+        if (e.candidate) ws.send(JSON.stringify({ ice: e.candidate }));
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach(t => pc.addTrack(t, stream));
+
+      ws.onmessage = async e => {
+        const msg = JSON.parse(e.data);
+        if (msg.sdp) {
+          await pc.setRemoteDescription(msg.sdp);
+          if (msg.sdp.type === "offer") {
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            ws.send(JSON.stringify({ sdp: pc.localDescription }));
+          }
+        }
+        if (msg.ice) await pc.addIceCandidate(msg.ice);
+      };
+
+      ws.onopen = async () => {
+        const offer = await pc.createOffer({ offerToReceiveAudio: true });
+        await pc.setLocalDescription(offer);
+        ws.send(JSON.stringify({ sdp: pc.localDescription }));
+      };
+    };
+  </script>
+</body>
+</html>
