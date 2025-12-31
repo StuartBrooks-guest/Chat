@@ -36,6 +36,9 @@
         if (e.candidate) ws.send(JSON.stringify({ ice: e.candidate }));
       };
 
+      pc.oniceconnectionstatechange = () => console.log("ICE state:", pc.iceConnectionState);
+      pc.onconnectionstatechange = () => console.log("Connection state:", pc.connectionState);
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       stream.getTracks().forEach(t => pc.addTrack(t, stream));
 
