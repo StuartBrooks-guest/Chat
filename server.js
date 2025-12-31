@@ -1,6 +1,7 @@
 const WebSocket = require('ws');
 const http = require('http');
 
+// Minimal HTTP server (Render needs HTTP to assign a URL)
 const server = http.createServer((req, res) => {
   res.writeHead(200);
   res.end('WebSocket signaling server running');
@@ -25,6 +26,5 @@ wss.on('connection', ws => {
   });
 });
 
-// Use Railway-assigned port
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
