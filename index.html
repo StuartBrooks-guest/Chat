@@ -43,7 +43,18 @@
       stream.getTracks().forEach(t => pc.addTrack(t, stream));
 
       ws.onmessage = async e => {
-        const msg = JSON.parse(e.data);
+        let data;
+      
+        if (typeof e.data === "string") {
+          data = e.data; // already a string
+        } else if (e.data instanceof Blob) {
+          data = await e.data.text(); // convert Blob to string
+        } else {
+          console.warn("Unknown message type", e.data);
+          return;
+        }
+      
+        const msg = JSON.parse(data);
         if (msg.sdp) {
           await pc.setRemoteDescription(msg.sdp);
           if (msg.sdp.type === "offer") {
