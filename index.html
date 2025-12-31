@@ -10,15 +10,27 @@
   <audio id="remote" autoplay></audio>
 
   <script>
-    const SIGNAL_URL = "https://chat-2u5f.onrender.com";
+    console.log("Script loaded"); // make sure this prints
+
+    const SIGNAL_URL = "wss://your-render-server.onrender.com"; // Replace with your Render WSS URL
     let pc, ws;
 
     document.getElementById("call").onclick = async () => {
+      console.log("Start button clicked");
+
       ws = new WebSocket(SIGNAL_URL);
 
-      pc = new RTCPeerConnection({ iceServers: [], iceTransportPolicy: "all" });
+      pc = new RTCPeerConnection({
+        iceServers: [
+          { urls: "stun:stun.l.google.com:19302" } // public STUN
+        ],
+        iceTransportPolicy: "all"
+      });
 
-      pc.ontrack = e => document.getElementById("remote").srcObject = e.streams[0];
+      pc.ontrack = e => {
+        console.log("Remote track received");
+        document.getElementById("remote").srcObject = e.streams[0];
+      };
 
       pc.onicecandidate = e => {
         if (e.candidate) ws.send(JSON.stringify({ ice: e.candidate }));
