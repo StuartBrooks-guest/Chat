@@ -14,6 +14,7 @@ wss.on('connection', ws => {
   clients.push(ws);
 
   ws.on('message', msg => {
+    // broadcast to other clients
     clients.forEach(c => {
       if (c !== ws && c.readyState === WebSocket.OPEN) {
         c.send(msg);
@@ -23,6 +24,13 @@ wss.on('connection', ws => {
 
   ws.on('close', () => {
     clients = clients.filter(c => c !== ws);
+  });
+
+  // optional: notify clients about how many peers are connected
+  clients.forEach(c => {
+    if (c.readyState === WebSocket.OPEN) {
+      c.send(JSON.stringify({ type: "peers", count: clients.length }));
+    }
   });
 });
 
