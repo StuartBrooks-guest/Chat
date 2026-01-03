@@ -10,13 +10,16 @@ const server = http.createServer((req, res) => {
   res.end("WebRTC signaling server running");
 });
 
-// Optional: log upgrade requests (for debugging WSS connections)
-server.on("upgrade", (req, socket, head) => {
-  console.log("WebSocket upgrade request received");
-});
-
 // Create WebSocket server
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocket.Server({ noServer: true });
+
+server.on("upgrade", (req, socket, head) => {
+  console.log("Upgrade request received:", req.url);
+
+  wss.handleUpgrade(req, socket, head, ws => {
+    wss.emit("connection", ws, req);
+  });
+});
 
 let clients = [];
 
