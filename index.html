@@ -6,15 +6,15 @@
 </head>
 <body>
   <h2>Private Audio Call</h2>
-  <p id="status">Waiting for other person...</p>
+  <p id="status">Waiting...</p>
   <button id="call">Start Call</button>
   <audio id="remote" autoplay playsinline></audio>
 
-  <script>
+<script>
 const SIGNAL_URL = "wss://chat-2u5f.onrender.com";
 
-let pc = null;
 let ws = null;
+let pc = null;
 let isInitiator = false;
 let roleKnown = false;
 let readyToCall = false;
@@ -36,63 +36,49 @@ callBtn.onclick = async () => {
   ws = new WebSocket(SIGNAL_URL);
 
   ws.onopen = () => {
-    console.log("Connected to signaling server");
     statusEl.textContent = "Connected. Waiting for peer...";
   };
 
-  ws.onmessage = async (e) => {
-    let data;
-    if (typeof e.data === "string") {
-      data = e.data;
-    } else if (e.data instanceof Blob) {
-      data = await e.data.text();
-    } else return;
+  ws.onmessage = async e => {
+    const data = typeof e.data === "string"
+      ? e.data
+      : await e.data.text();
 
     const msg = JSON.parse(data);
 
-    // Role assignment
-    if (msg.type === "role") {
-      isInitiator = msg.initiator;
-      roleKnown = true;
-      console.log("Initiator:", isInitiator);
-    }
+    switch (msg.type) {
+      case "role":
+        isInitiator = msg.initiator;
+        roleKnown = true;
+        break;
 
-    // Peer count
-    if (
-      msg.type === "peers" &&
-      msg.count === 2 &&
-      roleKnown &&
-      !readyToCall
-    ) {
-      readyToCall = true;
-      statusEl.textContent = "Peer connected. Starting call...";
-      await startWebRTC();
-    }
+      case "peers":
+        if (msg.count === 2 && roleKnown && !readyToCall) {
+          readyToCall = true;
+          statusEl.textContent = "Peer connected. Starting call...";
+          await startWebRTC();
+        }
+        break;
 
-    // SDP handling
-    if (msg.sdp && pc) {
-      await pc.setRemoteDescription(
-        new RTCSessionDescription(msg.sdp)
-      );
+      case "sdp":
+        await handleSDP(msg.sdp);
+        break;
 
-      if (msg.sdp.type === "offer") {
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        ws.send(JSON.stringify({ sdp: pc.localDescription }));
-      }
-    }
-
-    // ICE handling
-    if (msg.ice) {
-      if (pc) {
-        await pc.addIceCandidate(msg.ice);
-      } else {
-        pendingIce.push(msg.ice);
-      }
+      case "ice":
+        await handleICE(msg.ice);
+        break;
     }
   };
 
-  ws.onerror = err => console.error("WebSocket error:", err);
+  ws.onerror = err => {
+    console.error("WebSocket error:", err);
+  };
+
+  ws.onclose = () => {
+    statusEl.textContent = "Disconnected. Refresh to reconnect.";
+    ws = null;
+    callBtn.disabled = false;
+  };
 };
 
 async function startWebRTC() {
@@ -103,45 +89,63 @@ async function startWebRTC() {
   });
 
   pc.ontrack = e => {
-    console.log("Remote track received");
     remoteAudio.srcObject = e.streams[0];
+    remoteAudio.muted = false;
     remoteAudio.play().catch(() => {});
   };
 
   pc.onicecandidate = e => {
     if (e.candidate) {
-      ws.send(JSON.stringify({ ice: e.candidate }));
+      ws.send(JSON.stringify({
+        type: "ice",
+        ice: e.candidate
+      }));
     }
   };
 
   pc.onconnectionstatechange = () => {
-    console.log("Connection:", pc.connectionState);
-    if (pc.connectionState === "connected") {
-      statusEl.textContent = "✅ Call connected";
-    } else {
-      statusEl.textContent = "Call state: " + pc.connectionState;
-    }
+    statusEl.textContent = "Connection: " + pc.connectionState;
   };
-
-  pc.oniceconnectionstatechange = () =>
-    console.log("ICE:", pc.iceConnectionState);
-
-  pc.onicegatheringstatechange = () =>
-    console.log("ICE gathering:", pc.iceGatheringState);
 
   // Get microphone
   const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
   stream.getTracks().forEach(track => pc.addTrack(track, stream));
 
-  // Apply buffered ICE
-  pendingIce.forEach(c => pc.addIceCandidate(c));
-  pendingIce = [];
-
   // Only initiator sends offer
   if (isInitiator) {
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    ws.send(JSON.stringify({ sdp: pc.localDescription }));
+    ws.send(JSON.stringify({
+      type: "sdp",
+      sdp: pc.localDescription
+    }));
+  }
+}
+
+async function handleSDP(sdp) {
+  if (!pc) return;
+
+  await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+
+  // Apply buffered ICE now that remoteDescription exists
+  pendingIce.forEach(c => pc.addIceCandidate(c));
+  pendingIce = [];
+
+  if (sdp.type === "offer") {
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    ws.send(JSON.stringify({
+      type: "sdp",
+      sdp: pc.localDescription
+    }));
+  }
+}
+
+async function handleICE(candidate) {
+  if (pc && pc.remoteDescription) {
+    await pc.addIceCandidate(candidate);
+  } else {
+    pendingIce.push(candidate);
   }
 }
 </script>
