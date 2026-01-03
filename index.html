@@ -8,7 +8,7 @@
   <h2>Private Audio Call</h2>
   <p id="status">Waiting for other person...</p>
   <button id="call">Start Call</button>
-  <audio id="remote" autoplay></audio>
+  <audio id="remote" autoplay playsinline></audio>
 
   <script>
 const SIGNAL_URL = "wss://chat-2u5f.onrender.com";
@@ -16,6 +16,7 @@ const SIGNAL_URL = "wss://chat-2u5f.onrender.com";
 let pc = null;
 let ws = null;
 let isInitiator = false;
+let roleKnown = false;
 let readyToCall = false;
 let pendingIce = [];
 
@@ -23,7 +24,15 @@ const statusEl = document.getElementById("status");
 const callBtn = document.getElementById("call");
 const remoteAudio = document.getElementById("remote");
 
-callBtn.onclick = () => {
+callBtn.onclick = async () => {
+  if (ws) return;
+
+  callBtn.disabled = true;
+
+  // Required for autoplay on most browsers
+  remoteAudio.muted = false;
+  await remoteAudio.play().catch(() => {});
+
   ws = new WebSocket(SIGNAL_URL);
 
   ws.onopen = () => {
@@ -41,88 +50,30 @@ callBtn.onclick = () => {
 
     const msg = JSON.parse(data);
 
-    // Role assignment (initiator or not)
+    // Role assignment
     if (msg.type === "role") {
       isInitiator = msg.initiator;
+      roleKnown = true;
       console.log("Initiator:", isInitiator);
     }
 
-    // Peer count notification
-    if (msg.type === "peers" && msg.count === 2 && !readyToCall) {
+    // Peer count
+    if (
+      msg.type === "peers" &&
+      msg.count === 2 &&
+      roleKnown &&
+      !readyToCall
+    ) {
       readyToCall = true;
       statusEl.textContent = "Peer connected. Starting call...";
       await startWebRTC();
     }
 
     // SDP handling
-    if (msg.sdp) {
-      await pc.setRemoteDescription(msg.sdp);
+    if (msg.sdp && pc) {
+      await pc.setRemoteDescription(
+        new RTCSessionDescription(msg.sdp)
+      );
 
       if (msg.sdp.type === "offer") {
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        ws.send(JSON.stringify({ sdp: pc.localDescription }));
-      }
-    }
-
-    // ICE candidate handling
-    if (msg.ice) {
-      if (pc) {
-        await pc.addIceCandidate(msg.ice);
-      } else {
-        pendingIce.push(msg.ice);
-      }
-    }
-  };
-
-  ws.onerror = err => console.error("WebSocket error:", err);
-};
-
-async function startWebRTC() {
-  pc = new RTCPeerConnection({
-    iceServers: [
-      { urls: "stun:stun.l.google.com:19302" }
-    ]
-  });
-
-  pc.ontrack = e => {
-    console.log("Remote track received");
-    remoteAudio.srcObject = e.streams[0];
-    remoteAudio.play().catch(() => {
-      console.log("Autoplay blocked until user interaction");
-    });
-  };
-
-  pc.onicecandidate = e => {
-    if (e.candidate) {
-      ws.send(JSON.stringify({ ice: e.candidate }));
-    }
-  };
-
-  pc.onconnectionstatechange = () => {
-    console.log("Connection state:", pc.connectionState);
-    statusEl.textContent = "Call state: " + pc.connectionState;
-  };
-
-  pc.oniceconnectionstatechange = () => {
-    console.log("ICE state:", pc.iceConnectionState);
-  };
-
-  // Get microphone
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  stream.getTracks().forEach(track => pc.addTrack(track, stream));
-
-  // Apply buffered ICE
-  pendingIce.forEach(c => pc.addIceCandidate(c));
-  pendingIce = [];
-
-  // Only initiator creates offer
-  if (isInitiator) {
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    ws.send(JSON.stringify({ sdp: pc.localDescription }));
-  }
-}
-</script>
-</body>
-</html>
+        const answer = await pc.c
