@@ -11,7 +11,8 @@
   <audio id="remote" autoplay playsinline></audio>
 
 <script>
-const SIGNAL_URL = "wss://chat-2u5f.onrender.com"; // Update port if needed
+// Explicitly point to your Render server
+const SIGNAL_URL = "wss://chat-2u5f.onrender.com";
 
 let ws = null;
 let pc = null;
@@ -32,7 +33,7 @@ callBtn.onclick = async () => {
 
   callBtn.disabled = true;
   statusEl.textContent = "Connecting WebSocket...";
-  console.log("Starting WebSocket connection...");
+  console.log("Starting WebSocket connection to", SIGNAL_URL);
 
   // Start muted to allow autoplay
   remoteAudio.muted = true;
@@ -101,7 +102,7 @@ async function startWebRTC() {
   pc.ontrack = e => {
     console.log("Remote track received:", e.streams[0]);
     remoteAudio.srcObject = e.streams[0];
-    remoteAudio.muted = false; // unmute only when stream exists
+    remoteAudio.muted = false; // unmute when stream exists
     remoteAudio.play().catch(err => console.warn("Audio play error:", err));
   };
 
@@ -117,7 +118,6 @@ async function startWebRTC() {
     statusEl.textContent = "Connection: " + pc.connectionState;
   };
 
-  // Get microphone
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     console.log("Local audio stream acquired:", stream);
@@ -128,7 +128,6 @@ async function startWebRTC() {
     return;
   }
 
-  // Only initiator sends offer
   if (isInitiator) {
     console.log("Creating offer...");
     const offer = await pc.createOffer();
@@ -139,16 +138,12 @@ async function startWebRTC() {
 }
 
 async function handleSDP(sdp) {
-  if (!pc) {
-    console.warn("No RTCPeerConnection yet, cannot handle SDP");
-    return;
-  }
+  if (!pc) return;
 
   try {
     await pc.setRemoteDescription(new RTCSessionDescription(sdp));
     console.log("Remote description set:", sdp.type);
 
-    // Apply buffered ICE now that remoteDescription exists
     for (const c of pendingIce) {
       console.log("Adding buffered ICE:", c);
       await pc.addIceCandidate(c);
