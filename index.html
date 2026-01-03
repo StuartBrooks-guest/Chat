@@ -76,4 +76,74 @@ callBtn.onclick = async () => {
       );
 
       if (msg.sdp.type === "offer") {
-        const answer = await pc.c
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        ws.send(JSON.stringify({ sdp: pc.localDescription }));
+      }
+    }
+
+    // ICE handling
+    if (msg.ice) {
+      if (pc) {
+        await pc.addIceCandidate(msg.ice);
+      } else {
+        pendingIce.push(msg.ice);
+      }
+    }
+  };
+
+  ws.onerror = err => console.error("WebSocket error:", err);
+};
+
+async function startWebRTC() {
+  pc = new RTCPeerConnection({
+    iceServers: [
+      { urls: "stun:stun.l.google.com:19302" }
+    ]
+  });
+
+  pc.ontrack = e => {
+    console.log("Remote track received");
+    remoteAudio.srcObject = e.streams[0];
+    remoteAudio.play().catch(() => {});
+  };
+
+  pc.onicecandidate = e => {
+    if (e.candidate) {
+      ws.send(JSON.stringify({ ice: e.candidate }));
+    }
+  };
+
+  pc.onconnectionstatechange = () => {
+    console.log("Connection:", pc.connectionState);
+    if (pc.connectionState === "connected") {
+      statusEl.textContent = "✅ Call connected";
+    } else {
+      statusEl.textContent = "Call state: " + pc.connectionState;
+    }
+  };
+
+  pc.oniceconnectionstatechange = () =>
+    console.log("ICE:", pc.iceConnectionState);
+
+  pc.onicegatheringstatechange = () =>
+    console.log("ICE gathering:", pc.iceGatheringState);
+
+  // Get microphone
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+  // Apply buffered ICE
+  pendingIce.forEach(c => pc.addIceCandidate(c));
+  pendingIce = [];
+
+  // Only initiator sends offer
+  if (isInitiator) {
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    ws.send(JSON.stringify({ sdp: pc.localDescription }));
+  }
+}
+</script>
+</body>
+</html>
