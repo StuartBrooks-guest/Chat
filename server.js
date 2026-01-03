@@ -4,11 +4,18 @@ const http = require("http");
 // Use Render-provided PORT
 const PORT = process.env.PORT || 10000;
 
+// Create HTTP server
 const server = http.createServer((req, res) => {
   res.writeHead(200);
   res.end("WebRTC signaling server running");
 });
 
+// Optional: log upgrade requests (for debugging WSS connections)
+server.on("upgrade", (req, socket, head) => {
+  console.log("WebSocket upgrade request received");
+});
+
+// Create WebSocket server
 const wss = new WebSocket.Server({ server });
 
 let clients = [];
@@ -63,6 +70,7 @@ function broadcast(data) {
   });
 }
 
-server.listen(PORT, () => {
+// Listen on all network interfaces (0.0.0.0) for Render
+server.listen(PORT, "0.0.0.0", () => {
   console.log("Signaling server running on port", PORT);
 });
