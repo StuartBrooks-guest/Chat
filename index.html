@@ -37,7 +37,7 @@ callBtn.onclick = async () => {
 
   // Start muted to allow autoplay
   remoteAudio.muted = true;
-  await remoteAudio.play().catch(err => console.warn("Autoplay blocked:", err));
+  //await remoteAudio.play().catch(err => console.warn("Autoplay blocked:", err));
 
   ws = new WebSocket(SIGNAL_URL);
 
