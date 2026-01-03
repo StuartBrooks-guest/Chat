@@ -1,7 +1,9 @@
 const WebSocket = require("ws");
 const http = require("http");
 
-// Render requires an HTTP server
+// Use Render-provided PORT
+const PORT = process.env.PORT || 10000;
+
 const server = http.createServer((req, res) => {
   res.writeHead(200);
   res.end("WebRTC signaling server running");
@@ -12,7 +14,8 @@ const wss = new WebSocket.Server({ server });
 let clients = [];
 
 wss.on("connection", ws => {
-  // Allow only 2 peers
+  console.log("New WebSocket connection!");
+
   if (clients.length >= 2) {
     ws.close();
     return;
@@ -22,20 +25,17 @@ wss.on("connection", ws => {
 
   const isInitiator = clients.length === 1;
 
-  // Send role to this client only
   ws.send(JSON.stringify({
     type: "role",
     initiator: isInitiator
   }));
 
-  // Notify peer count
   broadcast({
     type: "peers",
     count: clients.length
   });
 
   ws.on("message", msg => {
-    // Relay signaling messages to the other peer
     clients.forEach(c => {
       if (c !== ws && c.readyState === WebSocket.OPEN) {
         c.send(msg);
@@ -44,6 +44,7 @@ wss.on("connection", ws => {
   });
 
   ws.on("close", () => {
+    console.log("WebSocket closed for a client.");
     clients = clients.filter(c => c !== ws);
 
     broadcast({
@@ -62,7 +63,6 @@ function broadcast(data) {
   });
 }
 
-const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
   console.log("Signaling server running on port", PORT);
 });
