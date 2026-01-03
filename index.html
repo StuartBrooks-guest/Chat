@@ -11,7 +11,6 @@
   <audio id="remote" autoplay playsinline></audio>
 
 <script>
-// Explicitly point to your Render server
 const SIGNAL_URL = "wss://chat-2u5f.onrender.com/";
 
 let ws = null;
@@ -35,10 +34,22 @@ callBtn.onclick = async () => {
   statusEl.textContent = "Connecting WebSocket...";
   console.log("Starting WebSocket connection to", SIGNAL_URL);
 
-  // Start muted to allow autoplay
-  remoteAudio.muted = true;
-  //await remoteAudio.play().catch(err => console.warn("Autoplay blocked:", err));
+  // Request microphone first
+  let localStream;
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    console.log("Local audio stream acquired:", localStream);
+  } catch (err) {
+    console.error("Error accessing microphone:", err);
+    statusEl.textContent = "Microphone access denied.";
+    callBtn.disabled = false;
+    return;
+  }
 
+  // Mute remote audio initially to avoid autoplay issues
+  remoteAudio.muted = true;
+
+  // Create WebSocket
   ws = new WebSocket(SIGNAL_URL);
 
   ws.onopen = () => {
@@ -64,7 +75,7 @@ callBtn.onclick = async () => {
           readyToCall = true;
           statusEl.textContent = "Peer connected. Starting call...";
           console.log("Both peers connected. Starting WebRTC...");
-          await startWebRTC();
+          await startWebRTC(localStream);
         }
         break;
 
@@ -93,19 +104,24 @@ callBtn.onclick = async () => {
   };
 };
 
-async function startWebRTC() {
+async function startWebRTC(localStream) {
   console.log("Initializing RTCPeerConnection...");
   pc = new RTCPeerConnection({
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
   });
 
+  // Add local audio tracks immediately
+  localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+  // Handle remote track
   pc.ontrack = e => {
     console.log("Remote track received:", e.streams[0]);
     remoteAudio.srcObject = e.streams[0];
-    remoteAudio.muted = false; // unmute when stream exists
-    remoteAudio.play().catch(err => console.warn("Audio play error:", err));
+    remoteAudio.muted = false;
+    remoteAudio.play().catch(err => console.warn("Audio play blocked:", err));
   };
 
+  // ICE candidate handling
   pc.onicecandidate = e => {
     if (e.candidate) {
       console.log("Sending ICE candidate:", e.candidate);
@@ -118,16 +134,7 @@ async function startWebRTC() {
     statusEl.textContent = "Connection: " + pc.connectionState;
   };
 
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    console.log("Local audio stream acquired:", stream);
-    stream.getTracks().forEach(track => pc.addTrack(track, stream));
-  } catch (err) {
-    console.error("Error accessing microphone:", err);
-    statusEl.textContent = "Microphone access denied.";
-    return;
-  }
-
+  // Initiator creates offer after tracks are added
   if (isInitiator) {
     console.log("Creating offer...");
     const offer = await pc.createOffer();
