@@ -11,7 +11,7 @@
   <audio id="remote" autoplay playsinline></audio>
 
 <script>
-const SIGNAL_URL = "wss://chat-2u5f.onrender.com";
+const SIGNAL_URL = "wss://chat-2u5f.onrender.com"; // Update port if needed
 
 let ws = null;
 let pc = null;
@@ -25,46 +25,55 @@ const callBtn = document.getElementById("call");
 const remoteAudio = document.getElementById("remote");
 
 callBtn.onclick = async () => {
-  if (ws) return;
+  if (ws) {
+    console.log("WebSocket already exists, ignoring click.");
+    return;
+  }
 
   callBtn.disabled = true;
+  statusEl.textContent = "Connecting WebSocket...";
+  console.log("Starting WebSocket connection...");
 
-  // Required for autoplay on most browsers
-  remoteAudio.muted = false;
-  await remoteAudio.play().catch(() => {});
+  // Start muted to allow autoplay
+  remoteAudio.muted = true;
+  await remoteAudio.play().catch(err => console.warn("Autoplay blocked:", err));
 
   ws = new WebSocket(SIGNAL_URL);
 
   ws.onopen = () => {
+    console.log("WebSocket opened!");
     statusEl.textContent = "Connected. Waiting for peer...";
   };
 
   ws.onmessage = async e => {
-    const data = typeof e.data === "string"
-      ? e.data
-      : await e.data.text();
-
+    const data = typeof e.data === "string" ? e.data : await e.data.text();
     const msg = JSON.parse(data);
+    console.log("WS message received:", msg);
 
     switch (msg.type) {
       case "role":
         isInitiator = msg.initiator;
         roleKnown = true;
+        console.log("Role assigned. Initiator:", isInitiator);
         break;
 
       case "peers":
+        console.log("Peer count:", msg.count);
         if (msg.count === 2 && roleKnown && !readyToCall) {
           readyToCall = true;
           statusEl.textContent = "Peer connected. Starting call...";
+          console.log("Both peers connected. Starting WebRTC...");
           await startWebRTC();
         }
         break;
 
       case "sdp":
+        console.log("Received SDP:", msg.sdp.type);
         await handleSDP(msg.sdp);
         break;
 
       case "ice":
+        console.log("Received ICE candidate:", msg.ice);
         await handleICE(msg.ice);
         break;
     }
@@ -72,9 +81,11 @@ callBtn.onclick = async () => {
 
   ws.onerror = err => {
     console.error("WebSocket error:", err);
+    statusEl.textContent = "WebSocket error. See console.";
   };
 
   ws.onclose = () => {
+    console.log("WebSocket closed.");
     statusEl.textContent = "Disconnected. Refresh to reconnect.";
     ws = null;
     callBtn.disabled = false;
@@ -82,70 +93,93 @@ callBtn.onclick = async () => {
 };
 
 async function startWebRTC() {
+  console.log("Initializing RTCPeerConnection...");
   pc = new RTCPeerConnection({
-    iceServers: [
-      { urls: "stun:stun.l.google.com:19302" }
-    ]
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
   });
 
   pc.ontrack = e => {
+    console.log("Remote track received:", e.streams[0]);
     remoteAudio.srcObject = e.streams[0];
-    remoteAudio.muted = false;
-    remoteAudio.play().catch(() => {});
+    remoteAudio.muted = false; // unmute only when stream exists
+    remoteAudio.play().catch(err => console.warn("Audio play error:", err));
   };
 
   pc.onicecandidate = e => {
     if (e.candidate) {
-      ws.send(JSON.stringify({
-        type: "ice",
-        ice: e.candidate
-      }));
+      console.log("Sending ICE candidate:", e.candidate);
+      ws.send(JSON.stringify({ type: "ice", ice: e.candidate }));
     }
   };
 
   pc.onconnectionstatechange = () => {
+    console.log("Connection state:", pc.connectionState);
     statusEl.textContent = "Connection: " + pc.connectionState;
   };
 
   // Get microphone
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  stream.getTracks().forEach(track => pc.addTrack(track, stream));
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    console.log("Local audio stream acquired:", stream);
+    stream.getTracks().forEach(track => pc.addTrack(track, stream));
+  } catch (err) {
+    console.error("Error accessing microphone:", err);
+    statusEl.textContent = "Microphone access denied.";
+    return;
+  }
 
   // Only initiator sends offer
   if (isInitiator) {
+    console.log("Creating offer...");
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    ws.send(JSON.stringify({
-      type: "sdp",
-      sdp: pc.localDescription
-    }));
+    console.log("Sending offer SDP...");
+    ws.send(JSON.stringify({ type: "sdp", sdp: pc.localDescription }));
   }
 }
 
 async function handleSDP(sdp) {
-  if (!pc) return;
+  if (!pc) {
+    console.warn("No RTCPeerConnection yet, cannot handle SDP");
+    return;
+  }
 
-  await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+  try {
+    await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+    console.log("Remote description set:", sdp.type);
 
-  // Apply buffered ICE now that remoteDescription exists
-  pendingIce.forEach(c => pc.addIceCandidate(c));
-  pendingIce = [];
+    // Apply buffered ICE now that remoteDescription exists
+    for (const c of pendingIce) {
+      console.log("Adding buffered ICE:", c);
+      await pc.addIceCandidate(c);
+    }
+    pendingIce = [];
 
-  if (sdp.type === "offer") {
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    ws.send(JSON.stringify({
-      type: "sdp",
-      sdp: pc.localDescription
-    }));
+    if (sdp.type === "offer") {
+      console.log("Creating answer...");
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      console.log("Sending answer SDP...");
+      ws.send(JSON.stringify({ type: "sdp", sdp: pc.localDescription }));
+    }
+  } catch (err) {
+    console.error("Error handling SDP:", err);
   }
 }
 
 async function handleICE(candidate) {
-  if (pc && pc.remoteDescription) {
-    await pc.addIceCandidate(candidate);
-  } else {
-    pendingIce.push(candidate);
+  if (!candidate) return;
+  try {
+    const iceCandidate = new RTCIceCandidate(candidate);
+    if (pc && pc.remoteDescription) {
+      console.log("Adding ICE candidate immediately:", iceCandidate);
+      await pc.addIceCandidate(iceCandidate);
+    } else {
+      console.log("Buffering ICE candidate:", iceCandidate);
+      pendingIce.push(iceCandidate);
+    }
+  } catch (err) {
+    console.error("Error adding ICE candidate:", err);
   }
 }
 </script>
