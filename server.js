@@ -12,18 +12,23 @@ const wss = new WebSocket.Server({ server });
 let clients = [];
 
 wss.on("connection", ws => {
+  // Allow only 2 peers
+  if (clients.length >= 2) {
+    ws.close();
+    return;
+  }
+
   clients.push(ws);
 
-  // First client becomes initiator
   const isInitiator = clients.length === 1;
 
-  // 🔹 Send role to THIS client only
+  // Send role to THIS client only
   ws.send(JSON.stringify({
     type: "role",
     initiator: isInitiator
   }));
 
-  // 🔹 Notify all clients of peer count
+  // Notify all clients of peer count
   clients.forEach(c => {
     if (c.readyState === WebSocket.OPEN) {
       c.send(JSON.stringify({
@@ -33,7 +38,7 @@ wss.on("connection", ws => {
     }
   });
 
-  // 🔹 Relay signaling messages
+  // Relay signaling messages
   ws.on("message", msg => {
     clients.forEach(c => {
       if (c !== ws && c.readyState === WebSocket.OPEN) {
@@ -45,7 +50,7 @@ wss.on("connection", ws => {
   ws.on("close", () => {
     clients = clients.filter(c => c !== ws);
 
-    // Update peer count on disconnect
+    // Update peer count
     clients.forEach(c => {
       if (c.readyState === WebSocket.OPEN) {
         c.send(JSON.stringify({
