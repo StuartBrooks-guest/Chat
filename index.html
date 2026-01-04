@@ -143,8 +143,10 @@ async function startWebRTC(localStream) {
 
   // Connection state changes (translated)
   pc.onconnectionstatechange = () => {
-    const t = CONNECTION_TEXT[pc.connectionState] || { en: pc.connectionState, ru: pc.connectionState };
-    statusEl.textContent = `${t.en} / ${t.ru}`;
+      // Look up translated text
+      const t = CONNECTION_TEXT[pc.connectionState] || { en: pc.connectionState, ru: pc.connectionState };
+      // Update status
+      statusEl.textContent = `Connection: ${t.en} / Подключение: ${t.ru}`;
   };
 
   if (isInitiator) {
