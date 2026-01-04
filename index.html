@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Private Audio Call</title>
+  <title>Private Audio Call / Личный аудиозвонок</title>
   <style>
     #call {
       font-size: 2.5rem;      /* ~3× bigger text */
@@ -13,13 +13,27 @@
   </style>
 </head>
 <body>
-  <h2>Private Audio Call</h2>
-  <p id="status">Waiting...</p>
-  <button id="call">Start Call</button>
+  <h2>Private Audio Call / Личный аудиозвонок</h2>
+  <p id="status">Waiting... / Ожидание...</p>
+  <button id="call">Start Call / Начать звонок</button>
   <audio id="remote" autoplay playsinline></audio>
 
 <script>
 const SIGNAL_URL = "wss://chat-2u5f.onrender.com/";
+
+// Language helper: stores text in EN/RU
+const TEXT = {
+  waiting: { en: "Waiting...", ru: "Ожидание..." },
+  connecting: { en: "Connecting WebSocket...", ru: "Подключение WebSocket..." },
+  wsConnected: { en: "Connected. Waiting for peer...", ru: "Подключено. Ожидание собеседника..." },
+  wsError: { en: "WebSocket error. See console.", ru: "Ошибка WebSocket. Смотрите консоль." },
+  disconnected: { en: "Disconnected. Refresh to reconnect.", ru: "Отключено. Обновите страницу для повторного подключения." },
+  micDenied: { en: "Microphone access denied.", ru: "Доступ к микрофону запрещен." },
+  peerConnected: { en: "Peer connected. Starting call...", ru: "Собеседник подключен. Начало звонка..." }
+};
+
+// Set current language
+let LANG = 'en'; // can switch to 'ru' if you want
 
 let ws = null;
 let pc = null;
@@ -32,165 +46,114 @@ const statusEl = document.getElementById("status");
 const callBtn = document.getElementById("call");
 const remoteAudio = document.getElementById("remote");
 
-callBtn.onclick = async () => {
-  if (ws) {
-    console.log("WebSocket already exists, ignoring click.");
-    return;
-  }
+function setStatus(key) {
+  const t = TEXT[key];
+  if (t) statusEl.textContent = `${t.en} / ${t.ru}`;
+}
 
+// Initial status
+setStatus('waiting');
+
+callBtn.onclick = async () => {
+  if (ws) return;
   callBtn.disabled = true;
-  statusEl.textContent = "Connecting WebSocket...";
-  console.log("Starting WebSocket connection to", SIGNAL_URL);
+  setStatus('connecting');
 
   // Request microphone first
   let localStream;
   try {
     localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    console.log("Local audio stream acquired:", localStream);
   } catch (err) {
-    console.error("Error accessing microphone:", err);
-    statusEl.textContent = "Microphone access denied.";
+    console.error(err);
+    setStatus('micDenied');
     callBtn.disabled = false;
     return;
   }
 
-  // Mute remote audio initially to avoid autoplay issues
   remoteAudio.muted = true;
 
-  // Create WebSocket
   ws = new WebSocket(SIGNAL_URL);
 
-  ws.onopen = () => {
-    console.log("WebSocket opened!");
-    statusEl.textContent = "Connected. Waiting for peer...";
-  };
+  ws.onopen = () => setStatus('wsConnected');
 
   ws.onmessage = async e => {
     const data = typeof e.data === "string" ? e.data : await e.data.text();
     const msg = JSON.parse(data);
-    console.log("WS message received:", msg);
 
     switch (msg.type) {
       case "role":
         isInitiator = msg.initiator;
         roleKnown = true;
-        console.log("Role assigned. Initiator:", isInitiator);
         break;
-
       case "peers":
-        console.log("Peer count:", msg.count);
         if (msg.count === 2 && roleKnown && !readyToCall) {
           readyToCall = true;
-          statusEl.textContent = "Peer connected. Starting call...";
-          console.log("Both peers connected. Starting WebRTC...");
+          setStatus('peerConnected');
           await startWebRTC(localStream);
         }
         break;
-
       case "sdp":
-        console.log("Received SDP:", msg.sdp.type);
         await handleSDP(msg.sdp);
         break;
-
       case "ice":
-        console.log("Received ICE candidate:", msg.ice);
         await handleICE(msg.ice);
         break;
     }
   };
 
-  ws.onerror = err => {
-    console.error("WebSocket error:", err);
-    statusEl.textContent = "WebSocket error. See console.";
-  };
-
+  ws.onerror = () => setStatus('wsError');
   ws.onclose = () => {
-    console.log("WebSocket closed.");
-    statusEl.textContent = "Disconnected. Refresh to reconnect.";
+    setStatus('disconnected');
     ws = null;
     callBtn.disabled = false;
   };
 };
 
+// WebRTC functions remain unchanged
 async function startWebRTC(localStream) {
-  console.log("Initializing RTCPeerConnection...");
   pc = new RTCPeerConnection({
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
   });
-
-  // Add local audio tracks immediately
   localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
-
-  // Handle remote track
   pc.ontrack = e => {
-    console.log("Remote track received:", e.streams[0]);
     remoteAudio.srcObject = e.streams[0];
     remoteAudio.muted = false;
-    remoteAudio.play().catch(err => console.warn("Audio play blocked:", err));
+    remoteAudio.play().catch(()=>{});
   };
-
-  // ICE candidate handling
   pc.onicecandidate = e => {
-    if (e.candidate) {
-      console.log("Sending ICE candidate:", e.candidate);
-      ws.send(JSON.stringify({ type: "ice", ice: e.candidate }));
-    }
+    if (e.candidate) ws.send(JSON.stringify({ type: "ice", ice: e.candidate }));
   };
-
   pc.onconnectionstatechange = () => {
-    console.log("Connection state:", pc.connectionState);
-    statusEl.textContent = "Connection: " + pc.connectionState;
+    statusEl.textContent = `Connection: ${pc.connectionState} / Подключение: ${pc.connectionState}`;
   };
-
-  // Initiator creates offer after tracks are added
   if (isInitiator) {
-    console.log("Creating offer...");
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    console.log("Sending offer SDP...");
     ws.send(JSON.stringify({ type: "sdp", sdp: pc.localDescription }));
   }
 }
 
 async function handleSDP(sdp) {
   if (!pc) return;
-
   try {
     await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-    console.log("Remote description set:", sdp.type);
-
-    for (const c of pendingIce) {
-      console.log("Adding buffered ICE:", c);
-      await pc.addIceCandidate(c);
-    }
+    for (const c of pendingIce) await pc.addIceCandidate(c);
     pendingIce = [];
-
     if (sdp.type === "offer") {
-      console.log("Creating answer...");
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
-      console.log("Sending answer SDP...");
       ws.send(JSON.stringify({ type: "sdp", sdp: pc.localDescription }));
     }
-  } catch (err) {
-    console.error("Error handling SDP:", err);
-  }
+  } catch (err) { console.error(err); }
 }
 
 async function handleICE(candidate) {
   if (!candidate) return;
   try {
     const iceCandidate = new RTCIceCandidate(candidate);
-    if (pc && pc.remoteDescription) {
-      console.log("Adding ICE candidate immediately:", iceCandidate);
-      await pc.addIceCandidate(iceCandidate);
-    } else {
-      console.log("Buffering ICE candidate:", iceCandidate);
-      pendingIce.push(iceCandidate);
-    }
-  } catch (err) {
-    console.error("Error adding ICE candidate:", err);
-  }
+    if (pc && pc.remoteDescription) await pc.addIceCandidate(iceCandidate);
+    else pendingIce.push(iceCandidate);
+  } catch (err) { console.error(err); }
 }
 </script>
 </body>
