@@ -5,8 +5,8 @@
   <title>Private Audio Call / Личный аудиозвонок</title>
   <style>
     #call {
-      font-size: 2.5rem;      /* ~3× bigger text */
-      padding: 20px 40px;     /* large touch area */
+      font-size: 2.5rem;
+      padding: 20px 40px;
       border-radius: 12px;
       cursor: pointer;
     }
@@ -21,19 +21,26 @@
 <script>
 const SIGNAL_URL = "wss://chat-2u5f.onrender.com/";
 
-// Language helper: stores text in EN/RU
+// Bilingual text dictionary
 const TEXT = {
-  waiting: { en: "Waiting...", ru: "Ожидание..." },
-  connecting: { en: "Connecting WebSocket...", ru: "Подключение WebSocket..." },
-  wsConnected: { en: "Connected. Waiting for peer...", ru: "Подключено. Ожидание собеседника..." },
-  wsError: { en: "WebSocket error. See console.", ru: "Ошибка WebSocket. Смотрите консоль." },
-  disconnected: { en: "Disconnected. Refresh to reconnect.", ru: "Отключено. Обновите страницу для повторного подключения." },
-  micDenied: { en: "Microphone access denied.", ru: "Доступ к микрофону запрещен." },
-  peerConnected: { en: "Peer connected. Starting call...", ru: "Собеседник подключен. Начало звонка..." }
+  waiting:          { en: "Waiting...", ru: "Ожидание..." },
+  connecting:       { en: "Connecting WebSocket...", ru: "Подключение WebSocket..." },
+  wsConnected:      { en: "Connected. Waiting for peer...", ru: "Подключено. Ожидание собеседника..." },
+  wsError:          { en: "WebSocket error. See console.", ru: "Ошибка WebSocket. Смотрите консоль." },
+  disconnected:     { en: "Disconnected. Refresh to reconnect.", ru: "Отключено. Обновите страницу для повторного подключения." },
+  micDenied:        { en: "Microphone access denied.", ru: "Доступ к микрофону запрещен." },
+  peerConnected:    { en: "Peer connected. Starting call...", ru: "Собеседник подключен. Начало звонка..." }
 };
 
-// Set current language
-let LANG = 'en'; // can switch to 'ru' if you want
+// Translate WebRTC connection states
+const CONNECTION_TEXT = {
+  new:          { en: "New", ru: "Новое" },
+  checking:     { en: "Checking", ru: "Проверка..." },
+  connected:    { en: "Connected", ru: "Подключено" },
+  disconnected: { en: "Disconnected", ru: "Отключено" },
+  failed:       { en: "Failed", ru: "Не удалось" },
+  closed:       { en: "Closed", ru: "Закрыто" }
+};
 
 let ws = null;
 let pc = null;
@@ -46,6 +53,7 @@ const statusEl = document.getElementById("status");
 const callBtn = document.getElementById("call");
 const remoteAudio = document.getElementById("remote");
 
+// Set current language to show both
 function setStatus(key) {
   const t = TEXT[key];
   if (t) statusEl.textContent = `${t.en} / ${t.ru}`;
@@ -85,6 +93,7 @@ callBtn.onclick = async () => {
         isInitiator = msg.initiator;
         roleKnown = true;
         break;
+
       case "peers":
         if (msg.count === 2 && roleKnown && !readyToCall) {
           readyToCall = true;
@@ -92,9 +101,11 @@ callBtn.onclick = async () => {
           await startWebRTC(localStream);
         }
         break;
+
       case "sdp":
         await handleSDP(msg.sdp);
         break;
+
       case "ice":
         await handleICE(msg.ice);
         break;
@@ -109,23 +120,33 @@ callBtn.onclick = async () => {
   };
 };
 
-// WebRTC functions remain unchanged
+// WebRTC functions
 async function startWebRTC(localStream) {
   pc = new RTCPeerConnection({
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
   });
+
+  // Add local audio tracks
   localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+  // Remote track
   pc.ontrack = e => {
     remoteAudio.srcObject = e.streams[0];
     remoteAudio.muted = false;
     remoteAudio.play().catch(()=>{});
   };
+
+  // ICE candidates
   pc.onicecandidate = e => {
     if (e.candidate) ws.send(JSON.stringify({ type: "ice", ice: e.candidate }));
   };
+
+  // Connection state changes (translated)
   pc.onconnectionstatechange = () => {
-    statusEl.textContent = `Connection: ${pc.connectionState} / Подключение: ${pc.connectionState}`;
+    const t = CONNECTION_TEXT[pc.connectionState] || { en: pc.connectionState, ru: pc.connectionState };
+    statusEl.textContent = `${t.en} / ${t.ru}`;
   };
+
   if (isInitiator) {
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
