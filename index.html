@@ -123,7 +123,31 @@ callBtn.onclick = async () => {
 // WebRTC functions
 async function startWebRTC(localStream) {
   pc = new RTCPeerConnection({
-    iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+    iceServers: [
+      {
+        urls: "stun:stun.relay.metered.ca:80",
+      },
+      {
+        urls: "turn:global.relay.metered.ca:80",
+        username: "a9a10075299be93c55fbfd35",
+        credential: "CsP9qFpOPjG+c2xD",
+      },
+      {
+        urls: "turn:global.relay.metered.ca:80?transport=tcp",
+        username: "a9a10075299be93c55fbfd35",
+        credential: "CsP9qFpOPjG+c2xD",
+      },
+      {
+        urls: "turn:global.relay.metered.ca:443",
+        username: "a9a10075299be93c55fbfd35",
+        credential: "CsP9qFpOPjG+c2xD",
+      },
+      {
+        urls: "turns:global.relay.metered.ca:443?transport=tcp",
+        username: "a9a10075299be93c55fbfd35",
+        credential: "CsP9qFpOPjG+c2xD",
+      },
+    ]
   });
 
   // Add local audio tracks
